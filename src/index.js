@@ -3,6 +3,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const session = require('express-session');
+const passport = require('./config/passport');
 const db = require('./config/db');
 
 const app = express();
@@ -16,6 +18,13 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'secret',
+    resave: false,
+    saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use((req, res, next) => {
     req.io = io;
@@ -67,25 +76,41 @@ io.on('connection', (socket) => {
 // BACKGROUND TASK: Cleanup Expired Locks using Knex
 setInterval(async () => {
     try {
-        const expiredLocks = await db('temporary_locks')
-            .where('expires_at', '<', db.fn.now());
+        await db.transaction(async (trx) => {
+            const expiredLocks = await trx('temporary_locks')
+                .where('expires_at', '<', db.fn.now())
+                .select('id', 'quota_id', 'location_id', 'user_id');
 
-        for (const lock of expiredLocks) {
-            await db.transaction(async (trx) => {
-                // Kembalikan current_locked di tabel quotas
-                await trx('quotas')
-                    .where('id', lock.quota_id)
-                    .decrement('current_locked', 1);
+            if (expiredLocks.length > 0) {
+                console.log(`Cleaning up ${expiredLocks.length} expired locks...`);
 
-                // Hapus dari temporary_locks
+                // Group by quota_id to decrement in batch
+                const quotaCounts = expiredLocks.reduce((acc, lock) => {
+                    acc[lock.quota_id] = (acc[lock.quota_id] || 0) + 1;
+                    return acc;
+                }, {});
+
+                // Update quotas in batch (one query per unique quota_id)
+                for (const [quotaId, count] of Object.entries(quotaCounts)) {
+                    await trx('quotas')
+                        .where('id', quotaId)
+                        .decrement('current_locked', count);
+                }
+
+                // Delete all expired locks in one query
                 await trx('temporary_locks')
-                    .where('id', lock.id)
+                    .whereIn('id', expiredLocks.map(l => l.id))
                     .del();
 
-                io.emit('quota_update', { location_id: lock.location_id });
-                console.log(`Expired lock cleaned for user_id: ${lock.user_id}`);
-            });
-        }
+                // Notify all clients about the quota updates
+                const uniqueLocationIds = [...new Set(expiredLocks.map(l => l.location_id))];
+                uniqueLocationIds.forEach(locId => {
+                    io.emit('quota_update', { location_id: locId });
+                });
+
+                console.log(`Cleaned up ${expiredLocks.length} locks successfully.`);
+            }
+        });
     } catch (error) {
         console.error('Cleanup Task Error:', error);
     }

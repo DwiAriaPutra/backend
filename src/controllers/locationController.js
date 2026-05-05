@@ -74,9 +74,11 @@ exports.lockLocation = async (req, res) => {
 
     try {
         const result = await db.transaction(async (trx) => {
-            // A. Cek apakah user sudah punya pilihan final atau lock aktif
-            const existingSelection = await trx('selection').where('user_id', user_id).first();
-            const existingLock = await trx('temporary_locks').where('user_id', user_id).first();
+            // A. Cek apakah user sudah punya pilihan final atau lock aktif secara paralel
+            const [existingSelection, existingLock] = await Promise.all([
+                trx('selection').where('user_id', user_id).first(),
+                trx('temporary_locks').where('user_id', user_id).first()
+            ]);
 
             if (existingSelection || existingLock) {
                 throw new Error('Anda sudah memilih lokasi atau sedang memiliki antrean aktif.');
