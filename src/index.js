@@ -6,9 +6,12 @@ const cors = require('cors');
 const session = require('express-session');
 const passport = require('./config/passport');
 const db = require('./config/db');
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('./config/jwt');
 
 const app = express();
 const server = http.createServer(app);
+const onlineUsers = new Map();
 const io = new Server(server, {
     cors: {
         origin: "*",
@@ -28,6 +31,7 @@ app.use(passport.session());
 
 app.use((req, res, next) => {
     req.io = io;
+    req.onlineUsers = onlineUsers;
     next();
 });
 
@@ -67,8 +71,44 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
+    const token = socket.handshake.auth?.token;
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            socket.data.user = decoded;
+
+            if (decoded.role === 'user') {
+                const userId = Number(decoded.id);
+                const sockets = onlineUsers.get(userId) || new Set();
+                sockets.add(socket.id);
+                onlineUsers.set(userId, sockets);
+                io.emit('student_status_update', { userId, is_online: true });
+            }
+        } catch (error) {
+            console.error('Socket authentication error:', error.message);
+        }
+    }
+
     console.log('User connected:', socket.id);
     socket.on('disconnect', () => {
+        const user = socket.data.user;
+
+        if (user?.role === 'user') {
+            const userId = Number(user.id);
+            const sockets = onlineUsers.get(userId);
+
+            if (sockets) {
+                sockets.delete(socket.id);
+                if (sockets.size === 0) {
+                    onlineUsers.delete(userId);
+                    io.emit('student_status_update', { userId, is_online: false });
+                } else {
+                    onlineUsers.set(userId, sockets);
+                }
+            }
+        }
+
         console.log('User disconnected:', socket.id);
     });
 });

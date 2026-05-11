@@ -53,6 +53,23 @@ exports.getRecentActivities = async (req, res) => {
     }
 };
 
+exports.getStudents = async (req, res) => {
+    try {
+        const onlineUsers = req.onlineUsers || new Map();
+        const students = await db('users')
+            .where('role', 'user')
+            .select('id', 'nama', 'nim', 'jurusan', 'gender', 'created_at')
+            .orderBy('nama', 'asc');
+
+        res.json(students.map((student) => ({
+            ...student,
+            is_online: onlineUsers.has(Number(student.id))
+        })));
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 exports.getPublicActivities = async (req, res) => {
     try {
         const activities = await db('activities')

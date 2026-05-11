@@ -9,5 +9,6 @@ router.get('/public-activities', verifyToken, adminController.getPublicActivitie
 // Admin only routes
 router.get('/stats', verifyToken, isAdmin, adminController.getDashboardStats);
 router.get('/activities', verifyToken, isAdmin, adminController.getRecentActivities);
+router.get('/students', verifyToken, isAdmin, adminController.getStudents);
 
 module.exports = router;
