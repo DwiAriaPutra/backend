@@ -60,6 +60,13 @@ exports.createLocation = async (req, res) => {
             return locId;
         });
 
+        if (req.io) {
+            req.io.emit('quota_update', {
+                location_id: locationId,
+                action: 'created'
+            });
+        }
+
         res.status(201).json({ message: 'Lokasi dan kuota berhasil ditambahkan', locationId });
     } catch (error) {
         res.status(400).json({ message: error.message });
