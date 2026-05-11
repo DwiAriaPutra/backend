@@ -181,20 +181,29 @@ exports.completeProfile = async (req, res) => {
     const userId = req.user.id;
 
     try {
-        if (!nim || !gender || !jurusan) {
+        const currentUser = await db('users').where('id', userId).first();
+        if (!currentUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const finalNim = nim || currentUser.nim;
+        const finalGender = gender || currentUser.gender;
+        const finalJurusan = jurusan || currentUser.jurusan;
+
+        if (!finalNim || !finalGender || !finalJurusan) {
             return res.status(400).json({ message: 'NIM, gender, dan jurusan wajib diisi' });
         }
 
         // Check if NIM already exists for another user
-        const existingUser = await db('users').where('nim', nim).whereNot('id', userId).first();
+        const existingUser = await db('users').where('nim', finalNim).whereNot('id', userId).first();
         if (existingUser) {
             return res.status(400).json({ message: 'NIM sudah terdaftar' });
         }
 
         await db('users').where('id', userId).update({
-            nim,
-            gender,
-            jurusan,
+            nim: finalNim,
+            gender: finalGender,
+            jurusan: finalJurusan,
             updated_at: new Date()
         });
 

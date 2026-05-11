@@ -5,8 +5,8 @@ const db = require("./db");
 const jurusan = {
   7006: "Teknik Informatika",
   7007: "Sistem Informasi",
-  7008: "Teknik Sipil",
-  7009: "Teknik Elektro",
+  7001: "Teknik Sipil",
+  7002: "Teknik Elektro",
 };
 
 passport.use(
@@ -22,16 +22,17 @@ passport.use(
       try {
         const { id: googleId, emails, displayName } = profile;
         const email = emails[0].value;
+        const nim = email.split("@")[0];
+        const code = nim.substring(2, 6);
+        const jurusanName = jurusan[Number(code)];
 
         let user = await db("users")
           .where("google_id", googleId)
           .orWhere("email", email)
+          .orWhere("nim", nim)
           .first();
 
         if (!user) {
-          let nim = email.split("@")[0];
-          let code = nim.substring(2, 6);
-          let jurusanName = jurusan[Number(code)];
           const [newUserId] = await db("users")
             .insert({
               nama: displayName,
@@ -46,10 +47,26 @@ passport.use(
           const userId =
             typeof newUserId === "object" ? newUserId.id : newUserId;
           user = await db("users").where("id", userId).first();
-        } else if (!user.google_id) {
-          await db("users")
-            .where("id", user.id)
-            .update({ google_id: googleId });
+        } else {
+          const updateData = {};
+
+          if (!user.google_id) {
+            updateData.google_id = googleId;
+          }
+          if (!user.email) {
+            updateData.email = email;
+          }
+          if (!user.jurusan && jurusanName) {
+            updateData.jurusan = jurusanName;
+          }
+          if (!user.nim) {
+            updateData.nim = nim;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            await db("users").where("id", user.id).update(updateData);
+            user = await db("users").where("id", user.id).first();
+          }
           user.google_id = googleId;
         }
 
